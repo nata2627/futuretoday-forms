@@ -9,6 +9,7 @@
   },
   "scripts": {
     "start": "node src/server.js",
+    "test": "node --test tests/validation.test.mjs tests/analytics.test.mjs",
     "check": "node scripts/check.mjs"
   },
   "dependencies": {
