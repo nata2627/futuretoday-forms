@@ -91,6 +91,15 @@ export function updateForm(id, change) {
   });
 }
 
+function removeByForm(file, formId) {
+  return update(file, (items) => {
+    for (let index = items.length - 1; index >= 0; index -= 1) {
+      if (items[index].formId === formId) items.splice(index, 1);
+    }
+  });
+}
+
+// Answers and events go with the form: otherwise the files keep rows nothing refers to.
 export async function removeForm(id) {
   const removed = await update(FORMS, (forms) => {
     const index = forms.findIndex((form) => form.id === id);
@@ -99,11 +108,8 @@ export async function removeForm(id) {
     return true;
   });
   if (removed) {
-    await update(ANSWERS, (answers) => {
-      for (let index = answers.length - 1; index >= 0; index -= 1) {
-        if (answers[index].formId === id) answers.splice(index, 1);
-      }
-    });
+    await removeByForm(ANSWERS, id);
+    await removeByForm(EVENTS, id);
   }
   return removed;
 }

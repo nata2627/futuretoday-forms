@@ -267,6 +267,18 @@ try {
     return 'код 404';
   });
 
+  await step('удаление формы уносит ее ответы и события', async () => {
+    const response = await post(`${base}/admin/forms/${formId}/delete`, {});
+    assert(response.status === 302, `ожидали 302, получили ${response.status}`);
+    const gone = await fetch(`${base}/admin/forms/${formId}`);
+    assert(gone.status === 404, `страница формы дала ${gone.status}`);
+    const left = await fs.readFile(path.join(dataDir, 'answers.json'), 'utf8');
+    const events = await fs.readFile(path.join(dataDir, 'events.json'), 'utf8');
+    assert(!left.includes(formId), 'ответы удаленной формы остались в файле');
+    assert(!events.includes(formId), 'события удаленной формы остались в файле');
+    return 'форма 404, ответов и событий не осталось';
+  });
+
   await step('несуществующий маршрут дает 404', async () => {
     const response = await fetch(`${base}/nothing-here`);
     assert(response.status === 404, `ожидали 404, получили ${response.status}`);
