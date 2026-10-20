@@ -1,4 +1,4 @@
-import { share } from './funnel.js';
+import { isMulti } from './validation.js';
 
 const HTML_ESCAPES = {
   '&': '&amp;',
@@ -13,7 +13,7 @@ export function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, (char) => HTML_ESCAPES[char]);
 }
 
-export function page({ title, body }) {
+export function page({ title, body, header = '', bodyClass = '' }) {
   return `<!doctype html>
 <html lang="ru">
 <head>
@@ -22,8 +22,9 @@ export function page({ title, body }) {
 <title>${escapeHtml(title)}</title>
 <link rel="stylesheet" href="/style.css">
 </head>
-<body>
-<main>
+<body${bodyClass ? ` class="${bodyClass}"` : ''}>
+${header}
+<main class="page">
 ${body}
 </main>
 </body>
@@ -39,200 +40,200 @@ const dateFormat = new Intl.DateTimeFormat('ru-RU', {
   minute: '2-digit'
 });
 
+const dayFormat = new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: 'long', year: 'numeric' });
+
 // Dates are stored in ISO and shown in local format: an ISO string with a timezone is not
 // something a manager should have to read.
 export function formatDate(iso) {
   return dateFormat.format(new Date(iso));
 }
 
-function errorBox(messages) {
+export function formatDay(value) {
+  const [year, month, day] = value.split('-').map(Number);
+  return dayFormat.format(new Date(Date.UTC(year, month - 1, day)));
+}
+
+export function errorBox(messages) {
   if (!messages.length) return '';
-  return `<div class="error-box">${messages.map((message) => `<p class="error">${escapeHtml(message)}</p>`).join('\n')}</div>`;
+  return `<div class="notice notice-error">
+${messages.map((message) => `<p>${escapeHtml(message)}</p>`).join('\n')}
+</div>`;
 }
 
-function fieldTypeLabel(types, value) {
-  return types.find((type) => type.value === value)?.label || value;
+export function displayValue(field, value) {
+  if (isMulti(field.type)) return Array.isArray(value) ? value.join(', ') : '';
+  if (field.type === 'date' && value) return formatDay(value);
+  return value || '';
 }
 
-export function adminListPage({ forms, answerCounts, errors = {}, values = {} }) {
-  const rows = forms
-    .map((form) => `<tr>
-<td><a href="/admin/forms/${escapeHtml(form.id)}">${escapeHtml(form.title)}</a></td>
-<td>${form.published ? 'опубликована' : 'черновик'}</td>
-<td>${form.fields.length}</td>
-<td>${answerCounts[form.id] || 0}</td>
-<td>${escapeHtml(formatDate(form.createdAt))}</td>
-</tr>`)
-    .join('\n');
+function control(field, value, hasError) {
+  const name = escapeHtml(field.id);
+  const id = `f_${name}`;
+  const required = field.required ? ' required' : '';
+  const invalid = hasError ? ' aria-invalid="true"' : '';
 
-  const table = forms.length
-    ? `<table>
-<thead><tr><th>Форма</th><th>Статус</th><th>Полей</th><th>Ответов</th><th>Создана</th></tr></thead>
-<tbody>
-${rows}
-</tbody>
-</table>`
-    : '<p class="muted">Форм пока нет. Создайте первую: назовите ее, добавьте поля и нажмите «Опубликовать», чтобы получить ссылку для студентов.</p>';
-
-  return page({
-    title: 'Админка, формы отклика',
-    body: `<h1>Формы отклика</h1>
-${table}
-<h2>Новая форма</h2>
-${errorBox(Object.values(errors))}
-<form method="post" action="/admin/forms">
-<label><span>Название</span>
-<input type="text" name="title" maxlength="200" value="${escapeHtml(values.title)}" placeholder="Стажировка в отделе аналитики, лето 2026">
-</label>
-<label><span>Описание, необязательно</span>
-<textarea name="description" maxlength="1000" placeholder="Пара строк о стажировке и о том, что будет после отклика">${escapeHtml(values.description)}</textarea>
-</label>
-<button type="submit">Создать форму</button>
-</form>`
-  });
-}
-
-function funnelBlock(funnel) {
-  const { opened, started, submitted } = funnel;
-  const percent = (part, whole) => {
-    const value = share(part, whole);
-    return value === null ? '' : ` (${value}%)`;
-  };
-
-  return `<table>
-<thead><tr><th>Шаг</th><th>Студентов</th><th>От предыдущего шага</th></tr></thead>
-<tbody>
-<tr><td>Открыли форму</td><td>${opened}</td><td class="muted">начало отсчета</td></tr>
-<tr><td>Начали заполнять</td><td>${started}</td><td>${started} из ${opened}${percent(started, opened)}</td></tr>
-<tr><td>Отправили отклик</td><td>${submitted}</td><td>${submitted} из ${started}${percent(submitted, started)}</td></tr>
-</tbody>
-</table>
-<p>${escapeHtml(funnel.comment)}</p>
-<p class="muted">Считается по событиям без куки и внешних счетчиков: открытие страницы, первый ввод в любое поле, успешная отправка. Отправка засчитывается и как начало заполнения, потому что первый ввод отслеживается скриптом на странице, а отправка работает и без него.</p>`;
-}
-
-export function adminFormPage({ form, link, answers, fieldTypes, funnel, fieldValues = {}, fieldErrors = {}, formErrors = [] }) {
-  const fieldsList = form.fields.length
-    ? `<table>
-<thead><tr><th>Подпись</th><th>Тип</th><th>Обязательное</th><th></th></tr></thead>
-<tbody>
-${form.fields.map((field) => `<tr>
-<td>${escapeHtml(field.label)}${field.options.length ? `<br><span class="muted">${escapeHtml(field.options.join(', '))}</span>` : ''}</td>
-<td>${escapeHtml(fieldTypeLabel(fieldTypes, field.type))}</td>
-<td>${field.required ? 'да' : 'нет'}</td>
-<td><form method="post" action="/admin/forms/${escapeHtml(form.id)}/fields/${escapeHtml(field.id)}/delete"><button class="button-secondary" type="submit">Удалить</button></form></td>
-</tr>`).join('\n')}
-</tbody>
-</table>`
-    : '<p class="muted">Полей пока нет. Добавьте первое поле ниже.</p>';
-
-  const publishBlock = form.published
-    ? `<p>Ссылка для студентов:</p>
-<p><input type="text" readonly id="form-link" value="${escapeHtml(link)}"> <button class="button-secondary" type="button" data-copy="form-link">Скопировать</button></p>
-<p><a href="${escapeHtml(link)}">Открыть форму как студент</a></p>
-<form method="post" action="/admin/forms/${escapeHtml(form.id)}/unpublish"><button class="button-secondary" type="submit">Снять с публикации</button></form>`
-    : `<p class="muted">Форма еще не опубликована, ссылки у студентов нет.</p>
-<form method="post" action="/admin/forms/${escapeHtml(form.id)}/publish"><button type="submit">Опубликовать и получить ссылку</button></form>`;
-
-  const answersBlock = answers.length
-    ? `<table>
-<thead><tr><th>Когда</th>${form.fields.map((field) => `<th>${escapeHtml(field.label)}</th>`).join('')}</tr></thead>
-<tbody>
-${answers.map((answer) => `<tr><td>${escapeHtml(formatDate(answer.createdAt))}</td>${form.fields.map((field) => `<td>${escapeHtml(answer.values[field.id] || '')}</td>`).join('')}</tr>`).join('\n')}
-</tbody>
-</table>`
-    : '<p class="muted">Ответов пока нет. Отправьте форму по ссылке сами, чтобы увидеть, как это выглядит для менеджера.</p>';
-
-  return page({
-    title: `Форма: ${form.title}`,
-    body: `<p><a href="/admin">Все формы</a></p>
-<h1>${escapeHtml(form.title)}</h1>
-${form.description ? `<p>${escapeHtml(form.description)}</p>` : ''}
-<p class="muted">Создана ${escapeHtml(formatDate(form.createdAt))}</p>
-
-<h2>Публикация</h2>
-${errorBox(formErrors)}
-${publishBlock}
-
-<h2>Поля формы</h2>
-${fieldsList}
-
-<h3>Добавить поле</h3>
-${errorBox(Object.values(fieldErrors))}
-<form method="post" action="/admin/forms/${escapeHtml(form.id)}/fields">
-<label><span>Подпись</span>
-<input type="text" name="label" maxlength="200" value="${escapeHtml(fieldValues.label)}" placeholder="Ваше имя">
-</label>
-<label><span>Тип</span>
-<select name="type">
-${fieldTypes.map((type) => `<option value="${escapeHtml(type.value)}"${fieldValues.type === type.value ? ' selected' : ''}>${escapeHtml(type.label)}</option>`).join('\n')}
-</select>
-</label>
-<label><span>Варианты, по одному в строке. Нужны только для типа «Выбор из списка»</span>
-<textarea name="options" placeholder="Бакалавриат&#10;Магистратура">${escapeHtml(fieldValues.optionsText)}</textarea>
-</label>
-<label><span><input type="checkbox" name="required"${fieldValues.required ? ' checked' : ''}> Обязательное поле</span></label>
-<button type="submit">Добавить поле</button>
-</form>
-
-<h2>Воронка заполнения</h2>
-${funnelBlock(funnel)}
-
-<h2>Ответы</h2>
-${answersBlock}
-
-<h2>Опасная зона</h2>
-<form method="post" action="/admin/forms/${escapeHtml(form.id)}/delete"><button class="button-secondary" type="submit">Удалить форму вместе с ответами</button></form>
-<script src="/admin.js" defer></script>`
-  });
-}
-
-export function publicFormPage({ form, values, errors, visitId }) {
-  const fields = form.fields.map((field) => {
-    const value = values[field.id] || '';
-    const error = errors[field.id];
-    const required = field.required ? ' required' : '';
-    let control;
-
-    if (field.type === 'textarea') {
-      control = `<textarea name="${escapeHtml(field.id)}" maxlength="2000"${required}>${escapeHtml(value)}</textarea>`;
-    } else if (field.type === 'select') {
-      control = `<select name="${escapeHtml(field.id)}"${required}>
-<option value="">Не выбрано</option>
+  switch (field.type) {
+    case 'textarea':
+      return `<textarea id="${id}" name="${name}" maxlength="4000" rows="5"${required}${invalid}>${escapeHtml(value)}</textarea>`;
+    case 'select':
+      return `<select id="${id}" name="${name}"${required}${invalid}>
+<option value="">Выберите вариант</option>
 ${field.options.map((option) => `<option value="${escapeHtml(option)}"${option === value ? ' selected' : ''}>${escapeHtml(option)}</option>`).join('\n')}
 </select>`;
-    } else {
-      const type = field.type === 'email' ? 'email' : 'text';
-      control = `<input type="${type}" name="${escapeHtml(field.id)}" maxlength="2000" value="${escapeHtml(value)}"${required}>`;
+    case 'radio':
+      return `<div class="choices">
+${field.options.map((option, index) => `<label class="choice"><input type="radio" name="${name}" id="${id}_${index}" value="${escapeHtml(option)}"${option === value ? ' checked' : ''}${required}> <span>${escapeHtml(option)}</span></label>`).join('\n')}
+</div>`;
+    case 'checkbox': {
+      const chosen = Array.isArray(value) ? value : [];
+      return `<div class="choices">
+${field.options.map((option, index) => `<label class="choice"><input type="checkbox" name="${name}" id="${id}_${index}" value="${escapeHtml(option)}"${chosen.includes(option) ? ' checked' : ''}> <span>${escapeHtml(option)}</span></label>`).join('\n')}
+</div>`;
     }
+    case 'consent':
+      return `<label class="choice"><input type="checkbox" id="${id}" name="${name}" value="да"${value === 'да' ? ' checked' : ''}${required}> <span>${escapeHtml(field.label)}${field.required ? ' <span class="req">*</span>' : ''}</span></label>`;
+    case 'number': {
+      const bounds = `${field.min === null ? '' : ` min="${field.min}"`}${field.max === null ? '' : ` max="${field.max}"`}`;
+      return `<input type="number" id="${id}" name="${name}" value="${escapeHtml(value)}" step="any"${bounds}${required}${invalid}>`;
+    }
+    case 'date':
+      return `<input type="date" id="${id}" name="${name}" value="${escapeHtml(value)}"${required}${invalid}>`;
+    case 'tel':
+      return `<input type="tel" id="${id}" name="${name}" value="${escapeHtml(value)}" maxlength="25" autocomplete="tel"${required}${invalid}>`;
+    case 'email':
+      return `<input type="email" id="${id}" name="${name}" value="${escapeHtml(value)}" maxlength="2000" autocomplete="email"${required}${invalid}>`;
+    default:
+      return `<input type="text" id="${id}" name="${name}" value="${escapeHtml(value)}" maxlength="2000"${required}${invalid}>`;
+  }
+}
 
-    return `<label>
-<span>${escapeHtml(field.label)}${field.required ? ' <span class="required">*</span>' : ''}</span>
-${control}
-${error ? `<span class="error">${escapeHtml(error)}</span>` : ''}
-</label>`;
-  }).join('\n');
+export function renderField(field, value, error) {
+  const id = `f_${escapeHtml(field.id)}`;
+  const mark = field.required ? ' <span class="req" title="обязательное поле">*</span>' : '';
+  const hint = field.hint ? `<p class="hint" id="${id}_hint">${escapeHtml(field.hint)}</p>` : '';
+  const problem = error ? `<p class="error" id="${id}_error">${escapeHtml(error)}</p>` : '';
+  const group = field.type === 'radio' || field.type === 'checkbox';
+  const consent = field.type === 'consent';
 
-  const hasErrors = Object.keys(errors).length > 0;
+  const head = consent
+    ? ''
+    : group
+      ? `<legend>${escapeHtml(field.label)}${mark}</legend>`
+      : `<label for="${id}">${escapeHtml(field.label)}${mark}</label>`;
 
-  return page({
-    title: form.title,
-    body: `<h1>${escapeHtml(form.title)}</h1>
-${form.description ? `<p>${escapeHtml(form.description)}</p>` : ''}
-${hasErrors ? errorBox(['Проверьте отмеченные поля, остальное сохранено.']) : ''}
-<form method="post" action="/f/${escapeHtml(form.id)}" id="public-form" data-started="/f/${escapeHtml(form.id)}/started?v=${escapeHtml(visitId)}">
+  const inner = `${head}
+${hint}
+${control(field, value, Boolean(error))}
+${problem}`;
+
+  const attrs = `class="field${error ? ' field-error' : ''}" data-field="${escapeHtml(field.id)}" data-type="${escapeHtml(field.type)}"${field.required ? ' data-required="1"' : ''}`;
+  return group ? `<fieldset ${attrs}>\n${inner}\n</fieldset>` : `<div ${attrs}>\n${inner}\n</div>`;
+}
+
+// Rounded on purpose: the student needs an order of magnitude, and a measured median of a few
+// seconds printed as "3 с" would read as a broken number rather than as a short form.
+function typicalPhrase(seconds) {
+  if (seconds < 60) return 'обычно занимает меньше минуты';
+  const minutes = Math.round(seconds / 60);
+  return `обычно занимает около ${minutes} ${plural(minutes, 'минуты', 'минут', 'минут')}`;
+}
+
+function formMeta(form, typicalSeconds) {
+  const requiredCount = form.fields.filter((field) => field.required).length;
+  const parts = [`${form.fields.length} ${plural(form.fields.length, 'вопрос', 'вопроса', 'вопросов')}`];
+  if (requiredCount) parts.push(`${requiredCount} обязательных`);
+  if (typicalSeconds !== null) parts.push(typicalPhrase(typicalSeconds));
+  return parts.join(' · ');
+}
+
+export function plural(count, one, few, many) {
+  const mod10 = count % 10;
+  const mod100 = count % 100;
+  if (mod10 === 1 && mod100 !== 11) return one;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return few;
+  return many;
+}
+
+export function publicFormPage({ form, values, errors, visitId, typicalSeconds, preview = false }) {
+  const requiredCount = form.fields.filter((field) => field.required).length;
+  const fields = form.fields.map((field) => renderField(field, values[field.id] ?? (isMulti(field.type) ? [] : ''), errors[field.id])).join('\n');
+  const errorCount = Object.keys(errors).length;
+
+  const progress = requiredCount
+    ? `<div class="progress" data-progress hidden>
+<div class="progress-track"><span class="progress-fill" data-progress-fill style="width: 0%"></span></div>
+<p class="progress-text">Заполнено обязательных: <b data-progress-done>0</b> из <b>${requiredCount}</b></p>
+</div>`
+    : '';
+
+  const banner = preview
+    ? '<div class="notice notice-info"><p>Предпросмотр. Так форму увидит студент, отправка здесь выключена.</p></div>'
+    : '';
+
+  const body = `${banner}
+<article class="card form-card">
+<header class="form-head">
+<h1>${escapeHtml(form.title)}</h1>
+${form.description ? `<p class="lead">${escapeHtml(form.description)}</p>` : ''}
+<p class="meta">${escapeHtml(formMeta(form, typicalSeconds))}</p>
+${requiredCount ? '<p class="meta"><span class="req">*</span> обязательное поле</p>' : ''}
+</header>
+${progress}
+${errorCount ? errorBox([`Не отправлено: ${errorCount} ${plural(errorCount, 'поле требует', 'поля требуют', 'полей требуют')} внимания. Остальное сохранено.`]) : ''}
+<form method="post" action="/f/${escapeHtml(form.id)}" id="public-form" novalidate data-draft="${escapeHtml(form.id)}" data-progress-url="/f/${escapeHtml(form.id)}/progress?v=${escapeHtml(visitId)}" data-started-url="/f/${escapeHtml(form.id)}/started?v=${escapeHtml(visitId)}">
 <input type="hidden" name="visitId" value="${escapeHtml(visitId)}">
 ${fields}
-<button type="submit">Отправить отклик</button>
+<div class="actions">
+<button type="submit"${preview ? ' disabled' : ''}>Отправить отклик</button>
+</div>
 </form>
-<script src="/form.js" defer></script>`
-  });
+</article>
+${preview ? '' : '<script src="/form.js" defer></script>'}`;
+
+  return page({ title: form.title, body, bodyClass: 'public' });
 }
 
 export function sentPage({ form }) {
   return page({
     title: 'Отклик отправлен',
-    body: `<h1>Отклик отправлен</h1>
-<p>Спасибо, ваш отклик по форме «${escapeHtml(form.title)}» принят. Менеджер увидит его в админке.</p>`
+    bodyClass: 'public',
+    body: `<article class="card form-card" data-sent="${escapeHtml(form.id)}">
+<h1>Отклик отправлен</h1>
+<p class="lead">Спасибо, ваш отклик по форме «${escapeHtml(form.title)}» принят. Менеджер увидит его в админке.</p>
+</article>
+<script src="/form.js" defer></script>`
+  });
+}
+
+export function notFoundPage() {
+  return page({
+    title: 'Страница не найдена',
+    bodyClass: 'public',
+    body: `<article class="card">
+<h1>Страница не найдена</h1>
+<p>Такой страницы нет. Если вы перешли по ссылке на форму, проверьте, что скопировали ее целиком, и спросите ссылку у менеджера: форму могли снять с публикации.</p>
+<p><a href="/">На главную</a></p>
+</article>`
+  });
+}
+
+export function landingPage() {
+  return page({
+    title: 'Конструктор форм отклика',
+    bodyClass: 'public',
+    body: `<article class="card">
+<h1>Конструктор форм отклика</h1>
+<p class="lead">Менеджер собирает форму в админке и получает ссылку, студент заполняет форму по этой ссылке, менеджер видит ответы и аналитику заполнения.</p>
+<p><a class="button" href="/admin">Перейти в админку</a></p>
+</article>`
+  });
+}
+
+export function errorPage(title, text, status) {
+  return page({
+    title,
+    bodyClass: 'public',
+    body: `<article class="card"><h1>${escapeHtml(title)}</h1><p>${escapeHtml(text)}</p></article>`,
+    status
   });
 }

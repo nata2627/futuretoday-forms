@@ -145,6 +145,21 @@ export function addEventOnce(event) {
   });
 }
 
+// Progress is the latest known state of one visit, so a new report replaces the previous one.
+export function replaceEvent(event) {
+  return update(EVENTS, (events) => {
+    const index = events.findIndex((item) => item.visitId === event.visitId && item.type === event.type);
+    if (index === -1) events.push(event);
+    else events[index] = event;
+  });
+}
+
+export function addEvent(event) {
+  return update(EVENTS, (events) => {
+    events.push(event);
+  });
+}
+
 export function listEvents() {
   return readFile(EVENTS);
 }
