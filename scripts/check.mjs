@@ -69,6 +69,7 @@ console.log(`Проверка сценария, порт ${port}, данные �
 
 try {
   let formId = null;
+  let visitId = null;
   const fieldIds = {};
 
   function post(url, body) {
@@ -166,7 +167,17 @@ try {
     assert(html.includes('Имя и фамилия'), 'подписей полей нет на странице');
     assert(!html.includes('<script>alert(1)</script>'), 'подпись поля попала в HTML как разметка');
     assert(html.includes('&lt;script&gt;alert(1)&lt;/script&gt;'), 'подпись поля не отрисована текстом');
+    visitId = html.match(/name="visitId" value="([^"]+)"/)?.[1];
+    assert(visitId, 'на странице нет идентификатора открытия, воронку считать не по чему');
     return 'код 200, скрипт в подписи выведен текстом';
+  });
+
+  await step('первый ввод засчитан один раз', async () => {
+    const first = await post(`${base}/f/${formId}/started?v=${visitId}`, {});
+    assert(first.status === 204, `ожидали 204, получили ${first.status}`);
+    const second = await post(`${base}/f/${formId}/started?v=${visitId}`, {});
+    assert(second.status === 204, `повтор дал ${second.status}`);
+    return 'код 204, повтор не создает второе событие';
   });
 
   await step('пустая отправка отклоняется, введенное не теряется', async () => {
@@ -198,6 +209,7 @@ try {
       [fieldIds[1]]: 'student@example.com',
       [fieldIds[2]]: 'Магистратура',
       [fieldIds[3]]: 'Хочу в аналитику',
+      visitId,
       lishnee_pole: 'ЭТОГО_БЫТЬ_НЕ_ДОЛЖНО'
     });
     assert(response.status === 302, `ожидали 302, получили ${response.status}`);
@@ -212,6 +224,23 @@ try {
     assert(html.includes('Магистратура'), 'значение выбора не показано');
     assert(!html.includes('ЭТОГО_БЫТЬ_НЕ_ДОЛЖНО'), 'лишнее поле запроса попало в хранилище');
     return 'ответ в таблице, лишнее поле отброшено';
+  });
+
+  await step('воронка в админке сходится с тем, что произошло', async () => {
+    const html = await (await fetch(`${base}/admin/forms/${formId}`)).text();
+    const number = (label) => {
+      const match = html.match(new RegExp(`<td>${label}</td><td>(\\d+)</td>`));
+      assert(match, `в воронке нет строки «${label}»`);
+      return Number(match[1]);
+    };
+    const opened = number('Открыли форму');
+    const started = number('Начали заполнять');
+    const submitted = number('Отправили отклик');
+    assert(opened === 1, `открытий ${opened} вместо 1`);
+    assert(started === 1, `начал заполнять ${started} вместо 1`);
+    assert(submitted === 1, `отправок ${submitted} вместо 1`);
+    assert(html.includes('1 из 1'), 'доля показана без знаменателя');
+    return 'открыли 1, начали 1, отправили 1, знаменатель на месте';
   });
 
   await step('чужая ссылка дает 404', async () => {

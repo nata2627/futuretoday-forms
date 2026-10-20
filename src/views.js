@@ -1,3 +1,5 @@
+import { share } from './funnel.js';
+
 const HTML_ESCAPES = {
   '&': '&amp;',
   '<': '&lt;',
@@ -90,7 +92,26 @@ ${errorBox(Object.values(errors))}
   });
 }
 
-export function adminFormPage({ form, link, answers, fieldTypes, fieldValues = {}, fieldErrors = {}, formErrors = [], funnel }) {
+function funnelBlock(funnel) {
+  const { opened, started, submitted } = funnel;
+  const percent = (part, whole) => {
+    const value = share(part, whole);
+    return value === null ? '' : ` (${value}%)`;
+  };
+
+  return `<table>
+<thead><tr><th>Шаг</th><th>Студентов</th><th>От предыдущего шага</th></tr></thead>
+<tbody>
+<tr><td>Открыли форму</td><td>${opened}</td><td class="muted">начало отсчета</td></tr>
+<tr><td>Начали заполнять</td><td>${started}</td><td>${started} из ${opened}${percent(started, opened)}</td></tr>
+<tr><td>Отправили отклик</td><td>${submitted}</td><td>${submitted} из ${started}${percent(submitted, started)}</td></tr>
+</tbody>
+</table>
+<p>${escapeHtml(funnel.comment)}</p>
+<p class="muted">Считается по событиям без куки и внешних счетчиков: открытие страницы, первый ввод в любое поле, успешная отправка. Отправка засчитывается и как начало заполнения, потому что первый ввод отслеживается скриптом на странице, а отправка работает и без него.</p>`;
+}
+
+export function adminFormPage({ form, link, answers, fieldTypes, funnel, fieldValues = {}, fieldErrors = {}, formErrors = [] }) {
   const fieldsList = form.fields.length
     ? `<table>
 <thead><tr><th>Подпись</th><th>Тип</th><th>Обязательное</th><th></th></tr></thead>
@@ -154,6 +175,9 @@ ${fieldTypes.map((type) => `<option value="${escapeHtml(type.value)}"${fieldValu
 <button type="submit">Добавить поле</button>
 </form>
 
+<h2>Воронка заполнения</h2>
+${funnelBlock(funnel)}
+
 <h2>Ответы</h2>
 ${answersBlock}
 
@@ -163,7 +187,7 @@ ${answersBlock}
   });
 }
 
-export function publicFormPage({ form, values, errors }) {
+export function publicFormPage({ form, values, errors, visitId }) {
   const fields = form.fields.map((field) => {
     const value = values[field.id] || '';
     const error = errors[field.id];
@@ -196,10 +220,12 @@ ${error ? `<span class="error">${escapeHtml(error)}</span>` : ''}
     body: `<h1>${escapeHtml(form.title)}</h1>
 ${form.description ? `<p>${escapeHtml(form.description)}</p>` : ''}
 ${hasErrors ? errorBox(['Проверьте отмеченные поля, остальное сохранено.']) : ''}
-<form method="post" action="/f/${escapeHtml(form.id)}">
+<form method="post" action="/f/${escapeHtml(form.id)}" id="public-form" data-started="/f/${escapeHtml(form.id)}/started?v=${escapeHtml(visitId)}">
+<input type="hidden" name="visitId" value="${escapeHtml(visitId)}">
 ${fields}
 <button type="submit">Отправить отклик</button>
-</form>`
+</form>
+<script src="/form.js" defer></script>`
   });
 }
 

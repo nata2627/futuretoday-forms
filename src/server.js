@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import * as storage from './storage.js';
+import { buildFunnel } from './funnel.js';
 import * as views from './views.js';
 import {
   FIELD_TYPES,
@@ -78,11 +79,13 @@ app.post('/admin/forms', async (req, res) => {
 
 async function renderAdminForm(req, res, form, extra = {}) {
   const answers = await storage.listAnswers(form.id);
+  const events = await storage.listEvents();
   html(res, views.adminFormPage({
     form,
     link: publicLink(req, form.id),
     answers,
     fieldTypes: FIELD_TYPES,
+    funnel: buildFunnel(events, form.id),
     ...extra
   }), extra.status || 200);
 }
@@ -156,15 +159,34 @@ async function publishedForm(id) {
   return form && form.published ? form : null;
 }
 
+function recordEvent(formId, visitId, type) {
+  return storage.addEventOnce({ formId, visitId, type, at: new Date().toISOString() });
+}
+
 app.get('/f/:id', async (req, res) => {
   const form = await publishedForm(req.params.id);
   if (!form) return notFound(res);
 
+  const visitId = storage.newId();
+  await recordEvent(form.id, visitId, 'opened');
+
   html(res, views.publicFormPage({
     form,
     values: {},
-    errors: {}
+    errors: {},
+    visitId
   }));
+});
+
+// Sent by the page script on the first keystroke. No body and no cookies: the visit id is the
+// one the server put into this page, and it says nothing about the student.
+app.post('/f/:id/started', async (req, res) => {
+  const form = await publishedForm(req.params.id);
+  const visitId = typeof req.query.v === 'string' ? req.query.v : '';
+  if (!form || !visitId) return res.status(404).end();
+
+  await recordEvent(form.id, visitId, 'started');
+  res.status(204).end();
 });
 
 app.post('/f/:id', async (req, res) => {
@@ -172,12 +194,15 @@ app.post('/f/:id', async (req, res) => {
   if (!form) return notFound(res);
 
   const { values, errors } = validateAnswer(form, req.body);
+  // The visit id travels in a hidden field, so a retry after a validation error stays one visit.
+  const visitId = typeof req.body.visitId === 'string' && req.body.visitId ? req.body.visitId : storage.newId();
 
   if (Object.keys(errors).length) {
     html(res, views.publicFormPage({
       form,
       values,
-      errors
+      errors,
+      visitId
     }), 400);
     return;
   }
@@ -189,6 +214,7 @@ app.post('/f/:id', async (req, res) => {
     createdAt: new Date().toISOString()
   });
 
+  await recordEvent(form.id, visitId, 'submitted');
   res.redirect(`/f/${form.id}/sent`);
 });
 

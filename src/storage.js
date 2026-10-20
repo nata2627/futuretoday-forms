@@ -12,6 +12,7 @@ const dataDir = path.resolve(process.env.DATA_DIR || path.join(rootDir, 'data'))
 
 const FORMS = 'forms.json';
 const ANSWERS = 'answers.json';
+const EVENTS = 'events.json';
 
 // One write queue per file: two requests arriving together would otherwise read the same
 // state and the slower write would drop the faster one.
@@ -125,6 +126,21 @@ export async function countAnswers() {
     counts[answer.formId] = (counts[answer.formId] || 0) + 1;
     return counts;
   }, {});
+}
+
+// One event per visit and type: the browser can report the first keystroke more than once,
+// and a funnel where "started" exceeds "opened" is worse than no funnel at all.
+export function addEventOnce(event) {
+  return update(EVENTS, (events) => {
+    const seen = events.some((item) => item.visitId === event.visitId && item.type === event.type);
+    if (seen) return false;
+    events.push(event);
+    return true;
+  });
+}
+
+export function listEvents() {
+  return readFile(EVENTS);
 }
 
 export function dataLocation() {
