@@ -55,8 +55,13 @@ export async function init() {
   await fs.mkdir(dataDir, { recursive: true });
 }
 
+// 16 random bytes: a public link must not be guessable by trying neighbouring numbers.
 export function newId() {
   return crypto.randomBytes(16).toString('base64url');
+}
+
+export function newFieldId() {
+  return crypto.randomBytes(4).toString('hex');
 }
 
 export function listForms() {
@@ -75,21 +80,31 @@ export function addForm(form) {
   });
 }
 
-export function setFormPublished(id, published) {
+// The change runs inside the write queue, so a form read here cannot be stale.
+export function updateForm(id, change) {
   return update(FORMS, (forms) => {
     const form = forms.find((item) => item.id === id);
-    if (form) form.published = published;
-    return form || null;
+    if (!form) return null;
+    change(form);
+    return form;
   });
 }
 
-export function removeForm(id) {
-  return update(FORMS, (forms) => {
+export async function removeForm(id) {
+  const removed = await update(FORMS, (forms) => {
     const index = forms.findIndex((form) => form.id === id);
     if (index === -1) return false;
     forms.splice(index, 1);
     return true;
   });
+  if (removed) {
+    await update(ANSWERS, (answers) => {
+      for (let index = answers.length - 1; index >= 0; index -= 1) {
+        if (answers[index].formId === id) answers.splice(index, 1);
+      }
+    });
+  }
+  return removed;
 }
 
 export function addAnswer(answer) {
