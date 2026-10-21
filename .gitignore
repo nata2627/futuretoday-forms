@@ -1,32 +1,17 @@
-# agent working files, never published
+# working files, not published
 CLAUDE.md
-docs/
 CLAUDE.local.md
 AGENTS.md
 .claude/
+docs/
 orchestration/
 
 # secrets
 .env
 .env.*
-!.env.example
-*.session
-*.pem
 
-# session exports carry everything the session saw, secrets included
-*-session-export*.txt
-exports/
-
-# tooling
-.venv/
-__pycache__/
-*.pyc
+# created while the service runs
 node_modules/
-logs/
-.vscode/
-.DS_Store
-
 data/*.json
-!data/.gitkeep
-*.sqlite
-*.db
+logs/
+.DS_Store

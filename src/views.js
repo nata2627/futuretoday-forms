@@ -48,6 +48,12 @@ export function formatDate(iso) {
   return dateFormat.format(new Date(iso));
 }
 
+// A csv is opened in Excel, and Excel parses a date only without the comma that Intl puts
+// between the day and the time.
+export function formatDateForFile(iso) {
+  return formatDate(iso).replace(', ', ' ');
+}
+
 export function formatDay(value) {
   const [year, month, day] = value.split('-').map(Number);
   return dayFormat.format(new Date(Date.UTC(year, month - 1, day)));
@@ -229,11 +235,10 @@ export function landingPage() {
   });
 }
 
-export function errorPage(title, text, status) {
+export function errorPage(title, text) {
   return page({
     title,
     bodyClass: 'public',
-    body: `<article class="card"><h1>${escapeHtml(title)}</h1><p>${escapeHtml(text)}</p></article>`,
-    status
+    body: `<article class="card"><h1>${escapeHtml(title)}</h1><p>${escapeHtml(text)}</p></article>`
   });
 }

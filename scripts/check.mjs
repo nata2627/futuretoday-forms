@@ -186,7 +186,11 @@ try {
     await post(`${base}/admin/forms/${formId}/fields/${second}/move`, { direction: 'down' });
     order = await readFieldIds();
     assert(fieldIds[1] === second, 'вопрос не вернулся на место');
-    return 'вверх и вниз работают, порядок восстановлен';
+    const nonsense = await post(`${base}/admin/forms/${formId}/fields/${second}/move`, { direction: 'вбок' });
+    assert(nonsense.status === 400, `неизвестное направление дало ${nonsense.status} вместо 400`);
+    await readFieldIds();
+    assert(fieldIds[1] === second, 'вопрос сдвинулся от неизвестного направления');
+    return 'вверх и вниз работают, неизвестное направление дает 400';
   });
 
   await step('предпросмотр доступен до публикации, отправка в нем выключена', async () => {
@@ -263,9 +267,8 @@ try {
     return `${cases.length} типов отклонили битое значение`;
   });
 
-  await step('студент отправил корректный отклик', async () => {
-    const response = await post(`${base}/f/${formId}`, {
-      visitId,
+  function validAnswer() {
+    return {
       [byLabel.get('Имя и фамилия')]: 'Наталия Гордеева',
       [byLabel.get('Почта для связи')]: 'student@example.com',
       [byLabel.get('Телефон')]: '+7 (916) 123-45-67',
@@ -275,7 +278,21 @@ try {
       [byLabel.get('Формат работы')]: 'Гибрид',
       [byLabel.get('Направления')]: ['Аналитика', 'Дизайн', 'Чужое направление'],
       [byLabel.get('<script>alert(1)</script>')]: 'Хочу в аналитику',
-      [byLabel.get('Согласие на обработку данных')]: 'да',
+      [byLabel.get('Согласие на обработку данных')]: 'да'
+    };
+  }
+
+  async function openVisit() {
+    const page = await text(await fetch(`${base}/f/${formId}`));
+    const match = page.match(/name="visitId" value="([^"]+)"/);
+    assert(match, 'на публичной странице нет идентификатора открытия');
+    return { page, visitId: match[1] };
+  }
+
+  await step('студент отправил корректный отклик', async () => {
+    const response = await post(`${base}/f/${formId}`, {
+      visitId,
+      ...validAnswer(),
       lishnee_pole: 'ЭТОГО_БЫТЬ_НЕ_ДОЛЖНО'
     });
     assert(response.status === 302, `ожидали 302, получили ${response.status}`);
@@ -302,10 +319,16 @@ try {
     const bytes = new Uint8Array(await response.arrayBuffer());
     assert(bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf,
       'нет метки кодировки, Excel откроет кириллицу мусором');
-    const csv = new TextDecoder().decode(bytes);
+    const csv = new TextDecoder().decode(bytes).replace(/^\uFEFF/, '');
+    const [header, row] = csv.trimEnd().split('\r\n');
+    assert(header.split(';').length === 11, `столбцов ${header.split(';').length} вместо 11, разделитель не точка с запятой`);
     assert(csv.includes('student@example.com'), 'в выгрузке нет ответа');
-    assert(csv.includes('"Аналитика, Дизайн"'), 'значение с запятой не закавычено');
-    return 'код 200, кодировка и кавычки на месте';
+    assert(csv.includes('Аналитика, Дизайн'), 'множественный выбор склеен неверно');
+    const when = row.split(';')[0];
+    assert(/^\d{2}\.\d{2}\.\d{4} \d{2}:\d{2}$/.test(when), `дата в файле выглядит как «${when}», ждали местный формат`);
+    assert(!when.includes('T') && !when.includes('Z'), 'в файл ушла ISO-строка с часовым поясом');
+    assert(csv.includes("'+7 (916) 123-45-67"), 'телефон с плюсом уйдет в Excel как формула');
+    return 'код 200, точка с запятой, местная дата, формулы обезврежены';
   });
 
   await step('правка вопроса не теряет собранные ответы', async () => {
@@ -346,6 +369,35 @@ try {
     assert(page.includes('Почта для связи'), 'в разделе про отказы сервера нет вопроса с ошибкой');
     assert(page.includes('Магистратура'), 'нет распределения ответов по вариантам');
     return 'открыли 2, начали 1, отправили 1, знаменатели на месте';
+  });
+
+  await step('типичное время остается на странице после ошибки валидации', async () => {
+    // Строка о времени показывается от пяти принятых откликов, один уже есть.
+    for (let index = 0; index < 4; index += 1) {
+      const visit = await openVisit();
+      const response = await post(`${base}/f/${formId}`, { visitId: visit.visitId, ...validAnswer() });
+      assert(response.status === 302, `отклик ${index + 2} дал ${response.status}`);
+    }
+    const fresh = await openVisit();
+    assert(fresh.page.includes('обычно занимает'), 'на свежей форме нет строки о типичном времени');
+    const broken = await post(`${base}/f/${formId}`, { visitId: fresh.visitId });
+    assert(broken.status === 400, `ожидали 400, получили ${broken.status}`);
+    assert((await text(broken)).includes('обычно занимает'), 'после ошибки валидации строка о времени пропала');
+    return 'строка на месте и до ошибки, и после';
+  });
+
+  await step('битое значение PORT не проглатывается', async () => {
+    const broken = spawn(process.execPath, ['src/server.js'], {
+      env: { ...process.env, PORT: 'ne-port', DATA_DIR: dataDir },
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+    const said = [];
+    broken.stdout.on('data', (chunk) => said.push(chunk.toString()));
+    broken.stderr.on('data', (chunk) => said.push(chunk.toString()));
+    const code = await new Promise((resolve) => broken.on('close', resolve));
+    assert(code === 1, `ожидали код выхода 1, получили ${code}`);
+    assert(said.join('').includes('PORT'), 'в выводе нет объяснения, что не так со значением PORT');
+    return 'код выхода 1 и одна понятная строка';
   });
 
   await step('чужая ссылка дает 404', async () => {

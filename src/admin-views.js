@@ -133,6 +133,9 @@ ${hasOptions(field.type) ? `<p class="meta options">${field.options.map((option)
 
 function fieldForm({ action, values, errors, submitLabel, lockedType = null }) {
   const typeOptions = FIELD_TYPES.map((type) => `<option value="${escapeHtml(type.value)}"${values.type === type.value ? ' selected' : ''}>${escapeHtml(type.label)}</option>`).join('\n');
+  const typeTitle = lockedType
+    ? '<p class="field-title">Тип вопроса</p>'
+    : '<label for="field-type">Тип вопроса</label>';
   const typeControl = lockedType
     ? `<p class="locked">${escapeHtml(typeLabels.get(lockedType) || lockedType)}<input type="hidden" name="type" value="${escapeHtml(lockedType)}"></p>
 <p class="meta">Тип поля не меняется после создания: уже собранные ответы хранятся в его формате. Удалите поле и добавьте заново, если тип выбран неверно.</p>`
@@ -144,7 +147,7 @@ ${typeOptions}
   return `<form method="post" action="${action}" class="stack">
 ${errorBox(Object.values(errors))}
 <div class="field">
-<label for="field-type">Тип вопроса</label>
+${typeTitle}
 ${typeControl}
 </div>
 <div class="field">
@@ -387,9 +390,10 @@ ${timingBlock}
 ${distributionBlock}
 <div class="card">
 <h2>Как это считается</h2>
-<p>Событий всего четыре: открытие страницы, первый ввод в любое поле, попытка отправки и принятый отклик. Плюс отметка о последнем вопросе, которую браузер шлет при закрытии вкладки.</p>
+<p>Событий шесть видов. Открытие страницы, первый ввод в любое поле, попытка отправки, отказ сервера по конкретному вопросу, принятый отклик и отметка о последнем вопросе, которую браузер шлет при закрытии вкладки.</p>
 <p>В событиях нет куки, адресов и заголовков браузера. Визит это одно открытие страницы со случайным идентификатором, который живет только в этой странице и ни с чем не связан.</p>
 <p>Отправка засчитывается и как начало заполнения: первый ввод отслеживается скриптом, а отправка работает и без JavaScript, иначе отправок оказалось бы больше, чем начавших.</p>
+<p>Визитом считается каждое открытие публичной ссылки, включая кнопку «Открыть как студент» в конструкторе. Вкладка «Предпросмотр» событий не пишет, ее открывать можно сколько угодно.</p>
 </div>`
   });
 }

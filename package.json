@@ -2,14 +2,14 @@
   "name": "futuretoday-forms",
   "version": "1.0.0",
   "private": true,
-  "description": "Konstruktor form otklika: menedzher sobiraet formu v adminke, student zapolnyaet ee po ssylke",
+  "description": "Сервис форм отклика. Менеджер собирает форму в админке, студент заполняет ее по ссылке",
   "type": "module",
   "engines": {
     "node": ">=20"
   },
   "scripts": {
     "start": "node src/server.js",
-    "test": "node --test tests/validation.test.mjs tests/analytics.test.mjs",
+    "test": "node --test tests/validation.test.mjs tests/analytics.test.mjs tests/csv.test.mjs",
     "check": "node scripts/check.mjs"
   },
   "dependencies": {

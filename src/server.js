@@ -16,7 +16,20 @@ import {
 } from './validation.js';
 
 const rootDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-const port = Number(process.env.PORT) || 3000;
+
+// A silent fallback to 3000 on a typo would look like the service ignoring PORT, and PORT is
+// a requirement of the task. Zero is kept as a valid value: it means any free port.
+function readPort(raw) {
+  if (raw === undefined || raw.trim() === '') return 3000;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 0 || value > 65535) {
+    console.error(`Значение PORT="${raw}" не похоже на номер порта. Укажите целое число от 0 до 65535 или не задавайте PORT, тогда будет 3000.`);
+    process.exit(1);
+  }
+  return value;
+}
+
+const port = readPort(process.env.PORT);
 
 await storage.init();
 
@@ -213,6 +226,11 @@ app.post('/admin/forms/:id/fields/:fieldId', async (req, res) => {
 });
 
 app.post('/admin/forms/:id/fields/:fieldId/move', async (req, res) => {
+  if (req.body.direction !== 'up' && req.body.direction !== 'down') {
+    html(res, views.errorPage('Неизвестное направление', 'Вопросы переставляются кнопками «вверх» и «вниз».'), 400);
+    return;
+  }
+
   const direction = req.body.direction === 'up' ? -1 : 1;
   const updated = await storage.updateForm(req.params.id, (form) => {
     const index = form.fields.findIndex((field) => field.id === req.params.fieldId);
@@ -268,6 +286,13 @@ app.post('/admin/forms/:id/delete', async (req, res) => {
   res.redirect('/admin');
 });
 
+// The measured filling time is the only promise the form makes about its length, so a student
+// who made a mistake should not lose it on the way back.
+async function typicalFor(form) {
+  const events = await storage.listEvents();
+  return typicalFillSeconds(buildAnalytics({ form, events, answers: [] }));
+}
+
 async function publishedForm(id) {
   const form = await storage.getForm(id);
   return form && form.published ? form : null;
@@ -282,7 +307,7 @@ app.get('/f/:id', async (req, res) => {
   if (!form) return notFound(res);
 
   const visitId = storage.newId();
-  const events = await storage.listEvents();
+  const typicalSeconds = await typicalFor(form);
   await storage.addEventOnce(event(form.id, visitId, 'opened'));
 
   html(res, views.publicFormPage({
@@ -290,7 +315,7 @@ app.get('/f/:id', async (req, res) => {
     values: {},
     errors: {},
     visitId,
-    typicalSeconds: typicalFillSeconds(buildAnalytics({ form, events, answers: [] }))
+    typicalSeconds
   }));
 });
 
@@ -338,7 +363,7 @@ app.post('/f/:id', async (req, res) => {
       values,
       errors,
       visitId,
-      typicalSeconds: null
+      typicalSeconds: await typicalFor(form)
     }), 400);
     return;
   }
@@ -376,7 +401,8 @@ app.use((error, req, res, next) => {
 const server = app.listen(port);
 
 server.on('listening', () => {
-  console.log(`Сервис запущен на http://localhost:${port}, админка на http://localhost:${port}/admin`);
+  const actual = server.address().port;
+  console.log(`Сервис запущен на http://localhost:${actual}, админка на http://localhost:${actual}/admin`);
 });
 
 server.on('error', (error) => {

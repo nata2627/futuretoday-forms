@@ -147,7 +147,7 @@ a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset:
 .row > .field { flex: 1 1 8rem; }
 
 .field { margin-bottom: 1.1rem; }
-.field > label, .field legend { display: block; font-weight: 600; margin-bottom: 0.3rem; padding: 0; }
+.field > label, .field legend, .field > .field-title { display: block; font-weight: 600; margin-bottom: 0.3rem; padding: 0; }
 .field .hint { color: var(--muted); font-size: 0.85rem; margin: -0.1rem 0 0.35rem; }
 fieldset.field { border: 0; margin-inline: 0; padding: 0; }
 
